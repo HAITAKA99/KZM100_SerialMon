@@ -22,7 +22,24 @@ export class StorageManager {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          this.initPromise = null;
+          reject(new Error('IndexedDB open timeout'));
+        }
+      }, 3000);
+
+      let request;
+      try {
+        request = indexedDB.open(DB_NAME, DB_VERSION);
+      } catch (err) {
+        clearTimeout(timer);
+        this.initPromise = null;
+        reject(err);
+        return;
+      }
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
@@ -36,13 +53,41 @@ export class StorageManager {
       };
 
       request.onsuccess = (event) => {
+        if (settled) {
+          event.target.result.close();
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
         this.db = event.target.result;
+        this.db.onversionchange = () => {
+          this.db.close();
+          this.db = null;
+          this.initPromise = null;
+        };
+        this.db.onclose = () => {
+          this.db = null;
+          this.initPromise = null;
+        };
         resolve(this.db);
       };
 
       request.onerror = (event) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.initPromise = null;
         console.error('IndexedDB open error:', event.target.error);
         reject(event.target.error);
+      };
+
+      request.onblocked = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.initPromise = null;
+        console.warn('IndexedDB open blocked by another connection');
+        reject(new Error('IndexedDB open blocked'));
       };
     });
 
@@ -115,26 +160,37 @@ export class StorageManager {
 
   /**
    * 7日以上前の古いレコードを自動削除（パージ）
+   * 1件ずつのカーソル削除では大量データ蓄積時にreadwriteロックが長時間続くため、
+   * 削除対象の最大主キー(id)を逆順カーソルで1件特定し、IDBKeyRange.upperBoundで一括範囲削除する
    * @param {number} [retentionDays=7] - 保持日数
+   * @returns {Promise<void>}
    */
   async purgeOldData(retentionDays = 7) {
     try {
       const db = await this.init();
       const cutoffTime = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
 
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const index = store.index('timestamp');
-      const range = IDBKeyRange.upperBound(cutoffTime);
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const index = store.index('timestamp');
+        const range = IDBKeyRange.upperBound(cutoffTime);
 
-      const request = index.openCursor(range);
-      request.onsuccess = (event) => {
-        const cursor = event.target.result;
-        if (cursor) {
-          cursor.delete();
-          cursor.continue();
-        }
-      };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error('Purge transaction aborted'));
+
+        const cursorReq = index.openKeyCursor
+          ? index.openKeyCursor(range, 'prev')
+          : index.openCursor(range, 'prev');
+
+        cursorReq.onsuccess = (event) => {
+          const cursor = event.target.result;
+          if (cursor && cursor.primaryKey !== undefined) {
+            store.delete(IDBKeyRange.upperBound(cursor.primaryKey));
+          }
+        };
+      });
     } catch (err) {
       console.warn('Failed to purge old data:', err);
     }
