@@ -20,6 +20,7 @@ class App {
     this.serialManager = new SerialManager();
     this.storageManager = new StorageManager();
     this.aggregator = new ChartAggregator('10m');
+    this.recentPackets = [];
 
     // UI コンポーネント参照
     this.clock = null;
@@ -39,27 +40,16 @@ class App {
   }
 
   async init() {
-    console.log('かざみんリアルタイムモニター ver.0.1.9 起動中...');
+    console.log('かざみんリアルタイムモニター ver.0.1.10 起動中...');
 
-    // 1. IndexedDB 初期化
-    try {
-      await this.storageManager.init();
-      // 起動時に7日以前の過去データをパージ
-      await this.storageManager.purgeOldData(7);
-      // 1時間おきに古いデータをパージ
-      setInterval(() => this.storageManager.purgeOldData(7), 3600 * 1000);
-    } catch (e) {
-      console.warn('Storage init warning:', e);
-    }
-
-    // 2. UI コンポーネントの初期化
+    // 1. UI コンポーネントの初期化（同期実行で即座に画面構築）
     this.clock = new DigitalClock(document.getElementById('clock-container'));
     this.dirGauge = new WindDirectionGauge(document.getElementById('gauge-dir-container'));
     this.speedGauge = new WindSpeedGauge(document.getElementById('gauge-speed-container'), 10);
     this.tempGauge = new TemperatureGauge(document.getElementById('gauge-temp-container'));
     this.consoleViewer = new ConsoleViewer(document.getElementById('console-container'), 200);
 
-    // 3. 時系列チャートの初期化
+    // 2. 時系列チャートの初期化
     this.chart = new TimeSeriesChart(document.getElementById('chart-container'), {
       // 風速スケール変更時に風速メーターのスケールを連動更新
       onSpeedScaleChange: (newMax) => {
@@ -79,10 +69,8 @@ class App {
       }
     });
 
-    // 初期スケール('10m')の履歴データをIndexedDBから復元して描画
-    await this._handleTimeScaleChange('10m');
-
-    // 4. イベントバインディング
+    // 3. イベントバインディング & シリアルコールバック設定
+    // IndexedDB の非同期処理を待たずに起動直後から「接続」「デモ」を操作可能にする
     this._bindEvents();
     this._setupSerialCallbacks();
 
@@ -97,6 +85,19 @@ class App {
     }
 
     console.log('かざみんリアルタイムモニター 準備完了');
+
+    // 4. IndexedDB 初期化・履歴復元・古いデータのパージ
+    try {
+      await this.storageManager.init();
+      // 初期スケールの履歴データをIndexedDBから復元して描画
+      await this._handleTimeScaleChange(this.chart.timeScale || '10m');
+      // 7日以前の過去データを一括パージ
+      await this.storageManager.purgeOldData(7);
+      // 1時間おきに古いデータをパージ
+      setInterval(() => this.storageManager.purgeOldData(7), 3600 * 1000);
+    } catch (e) {
+      console.warn('Storage init warning:', e);
+    }
   }
 
   _bindEvents() {
@@ -142,6 +143,7 @@ class App {
     if (this.btnClearDb) {
       this.btnClearDb.addEventListener('click', async () => {
         if (confirm('IndexedDBに蓄積されたすべての測定ログを消去しますか？')) {
+          this.recentPackets = [];
           await this.storageManager.clear();
           alert('ログデータを消去しました。');
         }
@@ -184,8 +186,12 @@ class App {
     this.aggregator.addPacket(packet);
     this.chart.updateData(this.aggregator.getPlotData());
 
-    // 4. IndexedDB に永続化
+    // 4. IndexedDB に永続化 & 直近メモリバッファに保持（上限600件）
     if (packet.isValid) {
+      this.recentPackets.push(packet);
+      while (this.recentPackets.length > 600) {
+        this.recentPackets.shift();
+      }
       this.storageManager.savePacket(packet);
     }
   }
@@ -227,9 +233,10 @@ class App {
     const scaleConfig = TIME_SCALES[newScale];
     if (!scaleConfig) return;
 
+    const sinceTime = Date.now() - scaleConfig.durationSec * 1000;
+
     try {
       // 必要な期間のデータを IndexedDB から取得
-      const sinceTime = Date.now() - scaleConfig.durationSec * 1000;
       const history = await this.storageManager.getSince(sinceTime);
 
       // パケット形式に適合させて aggregator を再構築
@@ -243,11 +250,26 @@ class App {
         raw: h.raw
       }));
 
+      // 非同期取得中にメモリ上で受信した最新パケットがあればマージする
+      const lastDbMs = packets.length > 0
+        ? packets[packets.length - 1].timestamp.getTime()
+        : 0;
+      for (const p of this.recentPackets) {
+        const pMs = p.timestamp instanceof Date ? p.timestamp.getTime() : new Date(p.timestamp).getTime();
+        if (pMs >= sinceTime && pMs > lastDbMs) {
+          packets.push(p);
+        }
+      }
+
       this.aggregator.setScale(newScale, packets);
       this.chart.updateData(this.aggregator.getPlotData());
     } catch (e) {
       console.warn('Failed to rebuild from history:', e);
-      this.aggregator.setScale(newScale, []);
+      const fallbackPackets = this.recentPackets.filter((p) => {
+        const pMs = p.timestamp instanceof Date ? p.timestamp.getTime() : new Date(p.timestamp).getTime();
+        return pMs >= sinceTime;
+      });
+      this.aggregator.setScale(newScale, fallbackPackets);
       this.chart.updateData(this.aggregator.getPlotData());
     }
   }

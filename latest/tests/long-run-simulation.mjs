@@ -10,6 +10,7 @@
 
 import { parsePacket } from '../src/serial/packet-parser.js';
 import { ChartAggregator, calculateVectorMeanDirection } from '../src/data/aggregator.js';
+import { StorageManager } from '../src/storage/db.js';
 
 // DOM環境のモック
 class MockElement {
@@ -266,6 +267,81 @@ async function runSimulation() {
   console.log(`10秒間の通信途絶シミュレーション後: 600点中のnull数 = ${outageNullCount}`);
   if (outageNullCount === 0) {
     throw new Error('実際の通信途絶期間が null になっていません');
+  }
+
+  // Issue #49: 大量データ蓄積時の purgeOldData が1件ずつのカーソルループではなく
+  // IDBKeyRange.upperBound による一括範囲削除 (O(1)) で即座に完了することを検証
+  console.log('\n--- Issue #49: purgeOldData 一括範囲削除 & 起動応答性テスト ---');
+  let deleteCallCount = 0;
+  let cursorContinueCount = 0;
+  let deletedRange = null;
+
+  globalThis.IDBKeyRange = {
+    upperBound(bound) {
+      return { type: 'upperBound', bound };
+    },
+    lowerBound(bound) {
+      return { type: 'lowerBound', bound };
+    }
+  };
+
+  globalThis.indexedDB = {
+    open() {
+      const req = {};
+      setTimeout(() => {
+        const fakeDb = {
+          objectStoreNames: { contains: () => true },
+          transaction() {
+            const tx = {
+              objectStore() {
+                return {
+                  index() {
+                    return {
+                      openKeyCursor(range, direction) {
+                        const cReq = {};
+                        setTimeout(() => {
+                          if (cReq.onsuccess) {
+                            cReq.onsuccess({
+                              target: {
+                                result: {
+                                  primaryKey: 300000,
+                                  continue() {
+                                    cursorContinueCount++;
+                                  }
+                                }
+                              }
+                            });
+                          }
+                          if (tx.oncomplete) tx.oncomplete();
+                        }, 1);
+                        return cReq;
+                      }
+                    };
+                  },
+                  delete(range) {
+                    deleteCallCount++;
+                    deletedRange = range;
+                  }
+                };
+              }
+            };
+            return tx;
+          },
+          close() {}
+        };
+        if (req.onsuccess) {
+          req.onsuccess({ target: { result: fakeDb } });
+        }
+      }, 1);
+      return req;
+    }
+  };
+
+  const storageManager = new StorageManager();
+  await storageManager.purgeOldData(7);
+  console.log(`300,000件相当のパージ検証: store.delete呼び出し回数 = ${deleteCallCount}, cursor.continue回数 = ${cursorContinueCount}, 削除上限主キー = ${deletedRange && deletedRange.bound}`);
+  if (deleteCallCount !== 1 || cursorContinueCount !== 0 || !deletedRange || deletedRange.bound !== 300000) {
+    throw new Error('purgeOldData が一括範囲削除になっていません');
   }
 
   const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(2);

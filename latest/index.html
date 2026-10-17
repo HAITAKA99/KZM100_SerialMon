@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>かざみんリアルタイムモニター ver.0.1.9</title>
+  <title>かざみんリアルタイムモニター ver.0.1.10</title>
   <meta name="description" content="超音波風向風速計 かざみん (KZM100A/KZM100LR) Web Serial API リアルタイム計測モニター">
   <meta name="theme-color" content="#131f3d">
   <!-- PWA Manifest -->
@@ -1030,7 +1030,7 @@ body {
         <svg class="header-logo" width="32" height="32" viewBox="0 0 562 562" aria-label="かざみん"><use href="#kazamin-icon" xlink:href="#kazamin-icon"/></svg>
         <h1 class="header-title">
           かざみんリアルタイムモニター
-          <span class="header-version">ver.0.1.9</span>
+          <span class="header-version">ver.0.1.10</span>
         </h1>
       </div>
 
@@ -1646,7 +1646,24 @@ class StorageManager {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          this.initPromise = null;
+          reject(new Error('IndexedDB open timeout'));
+        }
+      }, 3000);
+
+      let request;
+      try {
+        request = indexedDB.open(DB_NAME, DB_VERSION);
+      } catch (err) {
+        clearTimeout(timer);
+        this.initPromise = null;
+        reject(err);
+        return;
+      }
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
@@ -1660,13 +1677,41 @@ class StorageManager {
       };
 
       request.onsuccess = (event) => {
+        if (settled) {
+          event.target.result.close();
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
         this.db = event.target.result;
+        this.db.onversionchange = () => {
+          this.db.close();
+          this.db = null;
+          this.initPromise = null;
+        };
+        this.db.onclose = () => {
+          this.db = null;
+          this.initPromise = null;
+        };
         resolve(this.db);
       };
 
       request.onerror = (event) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.initPromise = null;
         console.error('IndexedDB open error:', event.target.error);
         reject(event.target.error);
+      };
+
+      request.onblocked = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.initPromise = null;
+        console.warn('IndexedDB open blocked by another connection');
+        reject(new Error('IndexedDB open blocked'));
       };
     });
 
@@ -1739,26 +1784,37 @@ class StorageManager {
 
   /**
    * 7日以上前の古いレコードを自動削除（パージ）
+   * 1件ずつのカーソル削除では大量データ蓄積時にreadwriteロックが長時間続くため、
+   * 削除対象の最大主キー(id)を逆順カーソルで1件特定し、IDBKeyRange.upperBoundで一括範囲削除する
    * @param {number} [retentionDays=7] - 保持日数
+   * @returns {Promise<void>}
    */
   async purgeOldData(retentionDays = 7) {
     try {
       const db = await this.init();
       const cutoffTime = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
 
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const index = store.index('timestamp');
-      const range = IDBKeyRange.upperBound(cutoffTime);
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const index = store.index('timestamp');
+        const range = IDBKeyRange.upperBound(cutoffTime);
 
-      const request = index.openCursor(range);
-      request.onsuccess = (event) => {
-        const cursor = event.target.result;
-        if (cursor) {
-          cursor.delete();
-          cursor.continue();
-        }
-      };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error('Purge transaction aborted'));
+
+        const cursorReq = index.openKeyCursor
+          ? index.openKeyCursor(range, 'prev')
+          : index.openCursor(range, 'prev');
+
+        cursorReq.onsuccess = (event) => {
+          const cursor = event.target.result;
+          if (cursor && cursor.primaryKey !== undefined) {
+            store.delete(IDBKeyRange.upperBound(cursor.primaryKey));
+          }
+        };
+      });
     } catch (err) {
       console.warn('Failed to purge old data:', err);
     }
@@ -3846,6 +3902,7 @@ class App {
     this.serialManager = new SerialManager();
     this.storageManager = new StorageManager();
     this.aggregator = new ChartAggregator('10m');
+    this.recentPackets = [];
 
     // UI コンポーネント参照
     this.clock = null;
@@ -3865,27 +3922,16 @@ class App {
   }
 
   async init() {
-    console.log('かざみんリアルタイムモニター ver.0.1.9 起動中...');
+    console.log('かざみんリアルタイムモニター ver.0.1.10 起動中...');
 
-    // 1. IndexedDB 初期化
-    try {
-      await this.storageManager.init();
-      // 起動時に7日以前の過去データをパージ
-      await this.storageManager.purgeOldData(7);
-      // 1時間おきに古いデータをパージ
-      setInterval(() => this.storageManager.purgeOldData(7), 3600 * 1000);
-    } catch (e) {
-      console.warn('Storage init warning:', e);
-    }
-
-    // 2. UI コンポーネントの初期化
+    // 1. UI コンポーネントの初期化（同期実行で即座に画面構築）
     this.clock = new DigitalClock(document.getElementById('clock-container'));
     this.dirGauge = new WindDirectionGauge(document.getElementById('gauge-dir-container'));
     this.speedGauge = new WindSpeedGauge(document.getElementById('gauge-speed-container'), 10);
     this.tempGauge = new TemperatureGauge(document.getElementById('gauge-temp-container'));
     this.consoleViewer = new ConsoleViewer(document.getElementById('console-container'), 200);
 
-    // 3. 時系列チャートの初期化
+    // 2. 時系列チャートの初期化
     this.chart = new TimeSeriesChart(document.getElementById('chart-container'), {
       // 風速スケール変更時に風速メーターのスケールを連動更新
       onSpeedScaleChange: (newMax) => {
@@ -3905,10 +3951,8 @@ class App {
       }
     });
 
-    // 初期スケール('10m')の履歴データをIndexedDBから復元して描画
-    await this._handleTimeScaleChange('10m');
-
-    // 4. イベントバインディング
+    // 3. イベントバインディング & シリアルコールバック設定
+    // IndexedDB の非同期処理を待たずに起動直後から「接続」「デモ」を操作可能にする
     this._bindEvents();
     this._setupSerialCallbacks();
 
@@ -3923,6 +3967,19 @@ class App {
     }
 
     console.log('かざみんリアルタイムモニター 準備完了');
+
+    // 4. IndexedDB 初期化・履歴復元・古いデータのパージ
+    try {
+      await this.storageManager.init();
+      // 初期スケールの履歴データをIndexedDBから復元して描画
+      await this._handleTimeScaleChange(this.chart.timeScale || '10m');
+      // 7日以前の過去データを一括パージ
+      await this.storageManager.purgeOldData(7);
+      // 1時間おきに古いデータをパージ
+      setInterval(() => this.storageManager.purgeOldData(7), 3600 * 1000);
+    } catch (e) {
+      console.warn('Storage init warning:', e);
+    }
   }
 
   _bindEvents() {
@@ -3968,6 +4025,7 @@ class App {
     if (this.btnClearDb) {
       this.btnClearDb.addEventListener('click', async () => {
         if (confirm('IndexedDBに蓄積されたすべての測定ログを消去しますか？')) {
+          this.recentPackets = [];
           await this.storageManager.clear();
           alert('ログデータを消去しました。');
         }
@@ -4010,8 +4068,12 @@ class App {
     this.aggregator.addPacket(packet);
     this.chart.updateData(this.aggregator.getPlotData());
 
-    // 4. IndexedDB に永続化
+    // 4. IndexedDB に永続化 & 直近メモリバッファに保持（上限600件）
     if (packet.isValid) {
+      this.recentPackets.push(packet);
+      while (this.recentPackets.length > 600) {
+        this.recentPackets.shift();
+      }
       this.storageManager.savePacket(packet);
     }
   }
@@ -4053,9 +4115,10 @@ class App {
     const scaleConfig = TIME_SCALES[newScale];
     if (!scaleConfig) return;
 
+    const sinceTime = Date.now() - scaleConfig.durationSec * 1000;
+
     try {
       // 必要な期間のデータを IndexedDB から取得
-      const sinceTime = Date.now() - scaleConfig.durationSec * 1000;
       const history = await this.storageManager.getSince(sinceTime);
 
       // パケット形式に適合させて aggregator を再構築
@@ -4069,11 +4132,26 @@ class App {
         raw: h.raw
       }));
 
+      // 非同期取得中にメモリ上で受信した最新パケットがあればマージする
+      const lastDbMs = packets.length > 0
+        ? packets[packets.length - 1].timestamp.getTime()
+        : 0;
+      for (const p of this.recentPackets) {
+        const pMs = p.timestamp instanceof Date ? p.timestamp.getTime() : new Date(p.timestamp).getTime();
+        if (pMs >= sinceTime && pMs > lastDbMs) {
+          packets.push(p);
+        }
+      }
+
       this.aggregator.setScale(newScale, packets);
       this.chart.updateData(this.aggregator.getPlotData());
     } catch (e) {
       console.warn('Failed to rebuild from history:', e);
-      this.aggregator.setScale(newScale, []);
+      const fallbackPackets = this.recentPackets.filter((p) => {
+        const pMs = p.timestamp instanceof Date ? p.timestamp.getTime() : new Date(p.timestamp).getTime();
+        return pMs >= sinceTime;
+      });
+      this.aggregator.setScale(newScale, fallbackPackets);
       this.chart.updateData(this.aggregator.getPlotData());
     }
   }
