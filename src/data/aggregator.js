@@ -192,12 +192,23 @@ export class ChartAggregator {
       this.committedPoints.shift();
       this.committedPoints.push(avgPoint);
 
+      // 直前インターバルの最終パケット時刻との差分を算出
+      const lastPacket = this.currentIntervalPackets[this.currentIntervalPackets.length - 1];
+      const lastPTime = lastPacket.timestamp instanceof Date
+        ? lastPacket.timestamp.getTime()
+        : new Date(lastPacket.timestamp).getTime();
+      const elapsedMs = pTime - lastPTime;
+
       // 通信途絶等で複数バケット進んだ場合は未計測スロットを null で埋める
+      // ただし1秒周期のクロックドリフトやタイマージッターによりバケット境界を跨いだだけ
+      // （パケット欠落なし・連続受信中）の場合は、チャートの途切れを防ぐため直前の確定値で補完する
       const missedBuckets = bucketId - this.lastBucketId - 1;
       const skipCount = Math.min(missedBuckets, PLOT_COUNT - 1);
+      const isContinuous = avgPoint !== null && elapsedMs <= 3500 && skipCount <= 2;
+
       for (let i = 0; i < skipCount; i++) {
         this.committedPoints.shift();
-        this.committedPoints.push(null);
+        this.committedPoints.push(isContinuous ? { ...avgPoint } : null);
       }
 
       this.lastBucketId = bucketId;
@@ -292,6 +303,39 @@ export class ChartAggregator {
       if (diff > 0 && diff < PLOT_COUNT) {
         const slotIdx = PLOT_COUNT - 1 - diff;
         this.committedPoints[slotIdx] = calculateAveragePoint(bPackets);
+      }
+    }
+
+    // 1秒周期のクロックドリフトやタイマージッターでバケット境界を跨いだことによる単発の空白スロットを補完
+    const maxSlots = PLOT_COUNT - 1;
+    let i = 0;
+    while (i < maxSlots) {
+      if (this.committedPoints[i] === null) {
+        let gapEnd = i;
+        while (gapEnd < maxSlots && this.committedPoints[gapEnd] === null) {
+          gapEnd++;
+        }
+        const gapLength = gapEnd - i;
+        const prevPoint = i > 0 ? this.committedPoints[i - 1] : null;
+        const nextPoint = gapEnd < maxSlots ? this.committedPoints[gapEnd] : this.latestPacket;
+
+        if (prevPoint && nextPoint && gapLength <= 2) {
+          const prevMs = prevPoint.timestamp instanceof Date
+            ? prevPoint.timestamp.getTime()
+            : new Date(prevPoint.timestamp).getTime();
+          const nextMs = nextPoint.timestamp instanceof Date
+            ? nextPoint.timestamp.getTime()
+            : new Date(nextPoint.timestamp).getTime();
+
+          if (nextMs - prevMs <= 3500) {
+            for (let k = i; k < gapEnd; k++) {
+              this.committedPoints[k] = { ...prevPoint };
+            }
+          }
+        }
+        i = gapEnd;
+      } else {
+        i++;
       }
     }
   }

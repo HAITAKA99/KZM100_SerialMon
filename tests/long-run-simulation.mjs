@@ -226,6 +226,48 @@ async function runSimulation() {
     throw new Error('クリア後の再投入で上限維持が失敗');
   }
 
+  // Issue #47: 1秒周期のクロックドリフト（例: 1006ms間隔）で2〜3分おきにバケット境界を跨いでも
+  // 10分間スケールチャートに null（途切れ）が発生しないことを検証
+  console.log('\n--- Issue #47: 10分間スケールのクロックドリフト耐性テスト ---');
+  const driftAggregator = new ChartAggregator('10m');
+  const driftPackets = [];
+  let driftTs = new Date('2026-10-17T00:00:00.000Z').getTime();
+
+  for (let i = 0; i < 700; i++) {
+    // 1006ms間隔（約166秒＝2分46秒ごとに1秒バケット境界をスキップするドリフト）
+    driftTs += 1006;
+    const p = parsePacket('00.0[m/s],000,+23.5', new Date(driftTs));
+    driftPackets.push(p);
+    driftAggregator.addPacket(p);
+  }
+
+  const realtimePlot = driftAggregator.getPlotData();
+  const realtimeNullCount = realtimePlot.filter((pt) => pt === null || pt.temperature === null).length;
+  console.log(`リアルタイム受信後(700件, 1006ms周期): 600点中のnull数 = ${realtimeNullCount}`);
+  if (realtimeNullCount !== 0) {
+    throw new Error(`リアルタイムプロットに途切れ(null)が発生しています: ${realtimeNullCount}件`);
+  }
+
+  // 履歴再構築(rebuildFromHistory)でも途切れが発生しないことを確認
+  driftAggregator.rebuildFromHistory(driftPackets);
+  const rebuiltPlot = driftAggregator.getPlotData();
+  const rebuiltNullCount = rebuiltPlot.filter((pt) => pt === null || pt.temperature === null).length;
+  console.log(`履歴再構築後(700件, 1006ms周期): 600点中のnull数 = ${rebuiltNullCount}`);
+  if (rebuiltNullCount !== 0) {
+    throw new Error(`履歴再構築プロットに途切れ(null)が発生しています: ${rebuiltNullCount}件`);
+  }
+
+  // 実際の通信途絶（例: 10秒間の欠落）は正しく null として保持されることを確認
+  driftTs += 10000;
+  const afterOutagePacket = parsePacket('00.0[m/s],000,+23.5', new Date(driftTs));
+  driftAggregator.addPacket(afterOutagePacket);
+  const outagePlot = driftAggregator.getPlotData();
+  const outageNullCount = outagePlot.filter((pt) => pt === null).length;
+  console.log(`10秒間の通信途絶シミュレーション後: 600点中のnull数 = ${outageNullCount}`);
+  if (outageNullCount === 0) {
+    throw new Error('実際の通信途絶期間が null になっていません');
+  }
+
   const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(2);
   console.log('\n====================================================');
   console.log(`長期運用シミュレーション完了: ALL PASSED (${elapsedSec}秒)`);
