@@ -1,0 +1,46 @@
+# Kazamin Real-Time Monitor Licensing Terms
+
+## 1. Source Code (MIT License)
+
+The source code of this project is licensed under the MIT License:
+
+MIT License
+
+Copyright (c) 2026 HAITAKA99
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+## 2. Icons, Logos & Graphic Assets (Commercial Use Prohibited)
+
+Copyright (c) 2026 HAITAKA99. All rights reserved.
+
+The icons, logos, brand elements, and graphical assets included in this repository
+(including, but not limited to, files under the `icons/` directory and inline SVG assets)
+are **strictly EXCLUDED** from the MIT License above.
+
+- **Non-commercial / Personal use**: Permitted solely in connection with running and viewing this software.
+- **Commercial use**: **STRICTLY PROHIBITED**. You may NOT use, copy, modify, merge, publish, distribute, sublicense, or sell the icons, logos, or derivative works thereof for any commercial purposes without prior written permission from the copyright holder.
+
+---
+
+### 【日本語による補足】
+- **プログラムコード**: [MIT License](#1-source-code-mit-license) のもとで商用・非商用問わず自由に利用・改変・再配布が可能です。
+- **アイコン・ロゴ素材**: `icons/` ディレクトリ内のSVGファイル（`kazamin.svg`, `kazamin2.svg` 等）およびHTML/CSS内に埋め込まれたロゴ等のグラフィック素材は **MIT License の対象外（All Rights Reserved）** です。著作権者の事前承諾のない**商用利用・再配布・販売・商用サービスへの転用は固く禁止**します（非営利の個人利用に限定されます）。
