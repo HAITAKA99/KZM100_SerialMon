@@ -1,0 +1,993 @@
+/**
+ * main.css
+ * かざみんリアルタイムモニター (Web Serial Monitor) スタイルシート
+ */
+
+:root {
+  --bg-primary: #121826;
+  --bg-card: #1e293b;
+  --bg-card-hover: #27354a;
+  --bg-input: #0f172a;
+  --border-color: #334155;
+  --border-light: #475569;
+
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  --accent-cyan: #00f0ff;
+  --accent-blue: #38bdf8;
+  --accent-green: #22c55e;
+  --accent-yellow: #eab308;
+  --accent-red: #ef4444;
+
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* アプリケーション全体コンテナ */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 8px 16px;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+/* ヘッダーエリア */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 8px 18px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-logo {
+  width: 32px;
+  height: 32px;
+  background-color: #ffffff;
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  box-sizing: border-box;
+  display: block;
+  flex-shrink: 0;
+}
+
+.header-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-version {
+  font-size: 0.8rem;
+  padding: 2px 8px;
+  background-color: rgba(0, 240, 255, 0.15);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(0, 240, 255, 0.4);
+  border-radius: 9999px;
+  font-weight: 600;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* デジタル時計 */
+.digital-clock-widget {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  background-color: rgba(15, 23, 42, 0.8);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+}
+
+.clock-date {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.clock-time {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  letter-spacing: 1px;
+}
+
+/* 接続ボタン & デモモード */
+.serial-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn {
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #0284c7, #00f0ff);
+  color: #0b1329;
+  box-shadow: 0 2px 8px rgba(0, 240, 255, 0.3);
+}
+
+.btn-primary:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.btn-danger {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+}
+
+.btn-danger:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+}
+
+.btn-secondary:hover {
+  background-color: var(--bg-card-hover);
+  border-color: var(--accent-cyan);
+}
+
+.btn-demo {
+  background-color: rgba(234, 179, 8, 0.15);
+  color: var(--accent-yellow);
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+
+.btn-demo.active {
+  background: linear-gradient(135deg, #ca8a04, #eab308);
+  color: #0b1329;
+  font-weight: 700;
+}
+
+.connection-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--text-muted);
+  display: inline-block;
+  margin-right: 4px;
+}
+
+.connection-status-dot.connected {
+  background-color: var(--accent-green);
+  box-shadow: 0 0 8px var(--accent-green);
+}
+
+.connection-status-dot.demo {
+  background-color: var(--accent-yellow);
+  box-shadow: 0 0 8px var(--accent-yellow);
+}
+
+/* メインコンテンツレイアウト */
+.app-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 上段: 3連メーターパネル */
+.gauges-section {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  align-items: stretch;
+  flex: none;
+  min-height: 280px;
+}
+
+#gauge-dir-container,
+#gauge-speed-container,
+#gauge-temp-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.gauge-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  height: 280px;
+  position: relative;
+  overflow: hidden;
+}
+
+.gauge-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  min-height: 20px;
+  flex-shrink: 0;
+}
+
+.gauge-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 0.8px;
+}
+
+.gauge-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: var(--accent-red);
+  color: #ffffff;
+  animation: pulse-badge 1s infinite alternate;
+}
+
+@keyframes pulse-badge {
+  from { opacity: 0.7; }
+  to { opacity: 1; transform: scale(1.05); }
+}
+
+.gauge-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-height: 180px;
+  max-height: 200px;
+}
+
+.gauge-footer {
+  margin-top: 4px;
+  text-align: center;
+  min-height: 42px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.gauge-value-display {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+}
+
+.value-number {
+  font-size: 1.85rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: #ffffff;
+  letter-spacing: 1px;
+}
+
+.value-number.error-text {
+  color: var(--accent-red);
+  animation: pulse-badge 0.8s infinite alternate;
+}
+
+.value-unit {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.value-sub {
+  font-size: 0.85rem;
+  color: var(--accent-cyan);
+  margin-left: 8px;
+  font-weight: 600;
+}
+
+.dir-value-display {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  width: 100%;
+}
+
+.dir-main-val {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 2px;
+}
+
+.dir-name-label {
+  position: absolute;
+  left: calc(50% + 36px);
+  white-space: nowrap;
+  margin-left: 0;
+}
+
+/* コンパス SVG */
+.compass-svg {
+  height: 100%;
+  min-height: 180px;
+  max-height: 200px;
+  width: auto;
+  max-width: 100%;
+}
+
+.compass-outer-ring {
+  fill: none;
+  stroke: var(--border-color);
+  stroke-width: 2;
+}
+
+.compass-inner-ring {
+  fill: rgba(15, 23, 42, 0.6);
+  stroke: var(--border-light);
+  stroke-width: 1;
+}
+
+.compass-label {
+  fill: var(--text-secondary);
+  text-anchor: middle;
+  dominant-baseline: central;
+  font-weight: 700;
+}
+
+.compass-label.major-label {
+  font-size: 19px;
+  font-weight: 800;
+  fill: #ffffff;
+}
+
+.compass-label.label-n {
+  fill: var(--accent-red);
+}
+
+.compass-label.minor-label {
+  font-size: 13px;
+  font-weight: 700;
+  fill: var(--text-muted);
+}
+
+.compass-deg-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  text-anchor: middle;
+  dominant-baseline: central;
+  font-family: var(--font-mono);
+}
+
+/* スピードメーター SVG */
+.speed-svg {
+  height: 100%;
+  min-height: 180px;
+  max-height: 200px;
+  width: auto;
+  max-width: 100%;
+}
+
+.speed-arc-track {
+  fill: none;
+  stroke: #1e293b;
+  stroke-width: 16;
+  stroke-linecap: round;
+}
+
+.speed-arc-fill {
+  fill: none;
+  stroke-width: 16;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.4s ease;
+}
+
+.speed-arc-mask {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 16;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.speed-arc-seg {
+  fill: none;
+  stroke-width: 16;
+  stroke-linecap: butt;
+}
+
+.speed-arc-error {
+  fill: none;
+  stroke-width: 16;
+  stroke-linecap: round;
+}
+
+.speed-tick-text {
+  font-size: 14.5px;
+  font-weight: 700;
+  fill: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.speed-scale-indicator {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  text-anchor: middle;
+  font-family: var(--font-mono);
+}
+
+/* 温度計 SVG・スタイル */
+.temp-svg {
+  height: 100%;
+  min-height: 180px;
+  max-height: 200px;
+  width: auto;
+  max-width: 100%;
+}
+
+.temp-arc-track {
+  fill: none;
+  stroke: #1e293b;
+  stroke-width: 16;
+  stroke-linecap: round;
+}
+
+.temp-arc-mask {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 16;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.temp-arc-seg {
+  fill: none;
+  stroke-width: 16;
+  stroke-linecap: butt;
+}
+
+.temp-tick-text {
+  font-size: 14.5px;
+  font-weight: 700;
+  fill: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.temp-scale-indicator {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  text-anchor: middle;
+  font-family: var(--font-mono);
+}
+
+/* 中段: 時間軸グラフパネル */
+.chart-section {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 10px 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  flex: 1.35;
+  min-height: 0;
+}
+
+.chart-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.chart-controls-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.control-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.btn-group {
+  display: inline-flex;
+  background-color: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  border: 1px solid var(--border-color);
+}
+
+.btn-scale {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 3px 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-scale:hover {
+  color: var(--text-primary);
+}
+
+.btn-scale.active {
+  background-color: #1e3a8a;
+  color: var(--accent-cyan);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.chart-canvas-wrapper {
+  width: 100%;
+  position: relative;
+  flex: 1;
+  min-height: 160px;
+  height: auto;
+}
+
+#time-series-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* 下段: 受信コンソール & CSV出力 */
+.bottom-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+#console-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+}
+
+.console-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 8px 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.console-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.console-title-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.console-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 0.8px;
+}
+
+.console-count-badge {
+  font-size: 0.75rem;
+  background-color: rgba(255, 255, 255, 0.08);
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.console-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.auto-scroll-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.btn-clear-console {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-clear-console:hover {
+  color: var(--text-primary);
+  border-color: var(--border-light);
+}
+
+.console-table-header {
+  display: grid;
+  grid-template-columns: 180px 100px 90px 90px 70px 1fr;
+  padding: 4px 12px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+.console-body {
+  flex: 1;
+  min-height: 65px;
+  height: auto;
+  overflow-y: auto;
+  background-color: #0f172a;
+  border: 1px solid var(--border-color);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  padding: 2px 0;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.console-placeholder {
+  color: var(--text-muted);
+  padding: 20px;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.console-row {
+  display: grid;
+  grid-template-columns: 180px 100px 90px 90px 70px 1fr;
+  padding: 3px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  align-items: center;
+  transition: background-color 0.1s ease;
+}
+
+.console-row:hover {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.console-row.row-error {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
+
+.col-speed.val-error {
+  color: var(--accent-red);
+  font-weight: 700;
+}
+
+.badge-ok {
+  color: var(--accent-green);
+  font-weight: 700;
+}
+
+.badge-err {
+  color: var(--accent-red);
+  font-weight: 700;
+}
+
+.col-raw {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* フッターエリア */
+.app-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 16px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  margin-top: 0;
+  flex-shrink: 0;
+}
+
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.footer-link {
+  color: var(--accent-blue);
+  text-decoration: none;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.2s;
+}
+
+.footer-link:hover {
+  color: var(--accent-cyan);
+  text-decoration: underline;
+}
+
+.footer-logo {
+  width: 24px;
+  height: 24px;
+  background-color: #ffffff;
+  border-radius: 4px;
+  padding: 1.5px;
+  box-sizing: border-box;
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.footer-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.btn-csv {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ffffff;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+}
+
+.btn-csv:hover {
+  filter: brightness(1.1);
+}
+
+/* 16:9 大画面およびデスクトップ表示（全画面表示最適化） */
+@media (min-width: 901px) and (min-height: 800px) {
+  body {
+    height: 100vh;
+    overflow: hidden;
+  }
+  .app-container {
+    height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
+  }
+}
+
+/* タブレット・中画面対応 */
+@media (max-width: 900px) {
+  body {
+    overflow-y: auto;
+  }
+  .app-container {
+    height: auto;
+    min-height: 100vh;
+    padding: 10px 12px;
+    gap: 12px;
+  }
+  .gauge-card {
+    height: 280px;
+    min-height: 280px;
+    padding: 10px 10px;
+  }
+  .gauge-title {
+    font-size: 0.78rem;
+    letter-spacing: 0.5px;
+  }
+  .gauge-body {
+    min-height: 180px;
+    max-height: 200px;
+  }
+  .compass-svg, .speed-svg, .temp-svg {
+    max-height: 200px;
+  }
+  .chart-section {
+    flex: none;
+    height: auto;
+  }
+  .chart-canvas-wrapper {
+    height: 360px;
+    min-height: 360px;
+  }
+  #time-series-canvas {
+    position: relative;
+    height: 360px;
+  }
+  .bottom-section {
+    flex: none;
+    height: auto;
+  }
+  .console-body {
+    height: 180px;
+    flex: none;
+  }
+}
+
+/* 横方向に余裕が無い場合（スマートフォン縦画面・狭画面）: 3連メーターを縦並びに配置 */
+@media (max-width: 600px) and (orientation: portrait), (max-width: 520px) {
+  .gauges-section {
+    grid-template-columns: 1fr;
+    flex: none;
+  }
+}
+
+/* スマホ対応 */
+@media (max-width: 680px) {
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .header-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .chart-canvas-wrapper {
+    height: 320px;
+    min-height: 320px;
+  }
+  #time-series-canvas {
+    height: 320px;
+  }
+  .console-table-header, .console-row {
+    grid-template-columns: 120px 70px 60px 60px 50px 1fr;
+    font-size: 0.72rem;
+  }
+  .app-footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* 画面高さが小さい場合のスクロール許可 */
+@media (max-height: 799px) and (min-width: 901px) {
+  body {
+    overflow-y: auto;
+  }
+  .app-container {
+    height: auto;
+    min-height: 100vh;
+  }
+  .gauge-card {
+    height: 280px;
+    min-height: 280px;
+  }
+  .chart-section {
+    flex: none;
+    height: auto;
+  }
+  .chart-canvas-wrapper {
+    min-height: 240px;
+    height: 240px;
+  }
+  #time-series-canvas {
+    position: relative;
+    height: 240px;
+  }
+  .bottom-section {
+    flex: none;
+    height: auto;
+  }
+  .console-card {
+    flex: none;
+    height: auto;
+  }
+  .console-body {
+    height: 120px;
+    min-height: 120px;
+    max-height: 120px;
+    flex: none;
+  }
+}

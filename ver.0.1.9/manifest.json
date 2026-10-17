@@ -1,0 +1,16 @@
+{
+  "name": "かざみんリアルタイムモニター",
+  "short_name": "かざみんモニター",
+  "description": "超音波風向風速計 かざみん (KZM100A/KZM100LR) Web Serial API リアルタイム計測モニター",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0b1329",
+  "theme_color": "#131f3d",
+  "icons": [
+    {
+      "src": "./icons/kazamin2.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
