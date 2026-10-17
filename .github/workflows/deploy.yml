@@ -31,7 +31,7 @@ jobs:
           python3 - << 'PYEOF'
           import subprocess, os
 
-          repo = os.environ.get('GITHUB_REPOSITORY', 'HAITAKA99/kazamin')
+          repo = os.environ.get('GITHUB_REPOSITORY', 'HAITAKA99/KZM100_SerialMon')
           try:
               tags_output = subprocess.check_output(['git', 'tag', '--sort=-v:refname'], text=True).strip().splitlines()
           except Exception:
@@ -43,8 +43,9 @@ jobs:
               if not tag:
                   continue
               readme_html = f' <span class="readme-link">(<a href="https://github.com/{repo}/blob/main/README.md" target="_blank" rel="noopener noreferrer">README</a>)</span>'
+              release_html = f' <span class="release-link">(<a href="https://github.com/{repo}/releases/tag/{tag}" target="_blank" rel="noopener noreferrer">Release</a>)</span>'
               latest_badge = ' <span class="badge-latest">最新</span>' if i == 0 else ''
-              items.append(f'    <li><a href="./{tag}/">{tag}</a>{readme_html}{latest_badge}</li>')
+              items.append(f'    <li><a href="./{tag}/">{tag}</a>{readme_html}{release_html}{latest_badge}</li>')
 
           version_list_html = '\n'.join(items)
 
@@ -108,7 +109,8 @@ jobs:
                 vertical-align: middle;
                 line-height: 1.2;
               }}
-              .readme-link {{
+              .readme-link,
+              .release-link {{
                 margin-left: 4px;
               }}
               .footer-links {{
@@ -158,6 +160,12 @@ jobs:
                     readmeSpan.className = 'readme-link';
                     readmeSpan.innerHTML = '(<a href="https://github.com/' + repo + '/blob/main/README.md" target="_blank" rel="noopener noreferrer">README</a>)';
                     li.appendChild(readmeSpan);
+
+                    li.appendChild(document.createTextNode(' '));
+                    const releaseSpan = document.createElement('span');
+                    releaseSpan.className = 'release-link';
+                    releaseSpan.innerHTML = '(<a href="https://github.com/' + repo + '/releases/tag/' + tag.name + '" target="_blank" rel="noopener noreferrer">Release</a>)';
+                    li.appendChild(releaseSpan);
 
                     if (isLatest) {{
                       const badge = document.createElement('span');
