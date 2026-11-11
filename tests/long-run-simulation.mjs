@@ -9,8 +9,9 @@
  */
 
 import { parsePacket } from '../src/serial/packet-parser.js';
-import { ChartAggregator, calculateVectorMeanDirection } from '../src/data/aggregator.js';
-import { StorageManager } from '../src/storage/db.js';
+import { ChartAggregator, calculateVectorMeanDirection, calculateAveragePoint } from '../src/data/aggregator.js';
+import { StorageManager, LONG_TERM_INTERVAL_MS } from '../src/storage/db.js';
+import { exportToCsv, exportLongTermToCsv } from '../src/export/csv-exporter.js';
 
 // DOM環境のモック
 class MockElement {
@@ -342,6 +343,167 @@ async function runSimulation() {
   console.log(`300,000件相当のパージ検証: store.delete呼び出し回数 = ${deleteCallCount}, cursor.continue回数 = ${cursorContinueCount}, 削除上限主キー = ${deletedRange && deletedRange.bound}`);
   if (deleteCallCount !== 1 || cursorContinueCount !== 0 || !deletedRange || deletedRange.bound !== 300000) {
     throw new Error('purgeOldData が一括範囲削除になっていません');
+  }
+
+  // Issue #52: 7日間ログ・3年間ログの独立保存・CSVダウンロード・個別消去の検証
+  console.log('\n--- Issue #52: 7日間ログ & 3年間ログ(16.8分間隔)生成・CSV出力・個別消去テスト ---');
+  const storesData = {
+    measurements: [],
+    long_term_logs: new Map()
+  };
+
+  globalThis.indexedDB = {
+    open() {
+      const req = {};
+      setTimeout(() => {
+        const fakeDb = {
+          objectStoreNames: { contains: () => false },
+          createObjectStore() {
+            return { createIndex() {} };
+          },
+          transaction(storeName) {
+            const tx = {
+              objectStore(name) {
+                return {
+                  add(record) {
+                    storesData[name].push({ id: storesData[name].length + 1, ...record });
+                  },
+                  put(record) {
+                    storesData[name].set(record.bucketId, { ...record });
+                  },
+                  get(key) {
+                    const gReq = {};
+                    setTimeout(() => {
+                      if (gReq.onsuccess) gReq.onsuccess({ result: storesData[name].get(key) || null });
+                    }, 0);
+                    return gReq;
+                  },
+                  getAll() {
+                    const aReq = {};
+                    setTimeout(() => {
+                      const res = name === 'measurements'
+                        ? [...storesData.measurements]
+                        : Array.from(storesData.long_term_logs.values());
+                      if (aReq.onsuccess) aReq.onsuccess();
+                      aReq.result = res;
+                    }, 0);
+                    // Wait: set result before calling onsuccess
+                    const aReq2 = {};
+                    setTimeout(() => {
+                      aReq2.result = name === 'measurements'
+                        ? [...storesData.measurements]
+                        : Array.from(storesData.long_term_logs.values());
+                      if (aReq2.onsuccess) aReq2.onsuccess();
+                    }, 0);
+                    return aReq2;
+                  },
+                  clear() {
+                    const cReq = {};
+                    setTimeout(() => {
+                      if (name === 'measurements') {
+                        storesData.measurements = [];
+                      } else {
+                        storesData.long_term_logs.clear();
+                      }
+                      if (cReq.onsuccess) cReq.onsuccess();
+                    }, 0);
+                    return cReq;
+                  }
+                };
+              }
+            };
+            return tx;
+          },
+          close() {}
+        };
+        if (req.onupgradeneeded) {
+          req.onupgradeneeded({ target: { result: fakeDb } });
+        }
+        if (req.onsuccess) {
+          req.onsuccess({ target: { result: fakeDb } });
+        }
+      }, 1);
+      return req;
+    }
+  };
+
+  const dualStorage = new StorageManager();
+  await dualStorage.init();
+
+  // 2つの16.8分(1008秒)バケットにまたがるパケットを投入
+  const t0 = 1008000 * 1000;
+  const p1 = parsePacket('04.0[m/s],090,+20.0', new Date(t0 + 1000));
+  const p2 = parsePacket('06.0[m/s],090,+22.0', new Date(t0 + 2000));
+  const p3 = parsePacket('10.0[m/s],180,+25.0', new Date(t0 + LONG_TERM_INTERVAL_MS + 1000));
+
+  for (const p of [p1, p2, p3]) {
+    await dualStorage.savePacket(p);
+  }
+  const bId1 = Math.floor((t0 + 1000) / LONG_TERM_INTERVAL_MS);
+  const bId2 = Math.floor((t0 + LONG_TERM_INTERVAL_MS + 1000) / LONG_TERM_INTERVAL_MS);
+  await dualStorage.saveLongTermPoint(bId1, calculateAveragePoint([p1, p2]));
+  await dualStorage.saveLongTermPoint(bId2, calculateAveragePoint([p3]));
+
+  const logs7d = await dualStorage.getAll();
+  const logs3y = await dualStorage.getAllLongTerm();
+  console.log(`保存確認: 7日間ログ件数 = ${logs7d.length} (期待値: 3), 3年間ログ件数 = ${logs3y.length} (期待値: 2)`);
+  if (logs7d.length !== 3 || logs3y.length !== 2) {
+    throw new Error('7日間ログまたは3年間ログの生成件数が不正です');
+  }
+  if (logs3y[0].speed !== 5.0 || logs3y[0].speedMin !== 4.0 || logs3y[0].speedMax !== 6.0) {
+    throw new Error('3年間ログの集約計算値が不正です');
+  }
+
+  // CSVダウンロード検証
+  const downloadedFiles = [];
+  globalThis.Blob = class MockBlob {
+    constructor(parts, options) {
+      this.content = parts.join('');
+      this.type = options && options.type;
+    }
+  };
+  globalThis.URL = {
+    createObjectURL(blob) {
+      this._lastBlob = blob;
+      return 'blob:mock-url';
+    },
+    revokeObjectURL() {}
+  };
+  globalThis.document.body = new MockElement('body');
+  const origCreateEl = globalThis.document.createElement;
+  globalThis.document.createElement = (tag) => {
+    const el = origCreateEl(tag);
+    el.setAttribute = function(k, v) { this[k] = v; };
+    el.click = function() {
+      downloadedFiles.push({ filename: this.download, content: globalThis.URL._lastBlob.content });
+    };
+    return el;
+  };
+
+  exportToCsv(logs7d, 'kazamin_log_7d');
+  exportLongTermToCsv(logs3y, 'kazamin_log_3y');
+  console.log(`CSV出力確認: 出力ファイル数 = ${downloadedFiles.length} (${downloadedFiles.map((f) => f.filename).join(', ')})`);
+  if (downloadedFiles.length !== 2 || !downloadedFiles[0].filename.startsWith('kazamin_log_7d_') || !downloadedFiles[1].filename.startsWith('kazamin_log_3y_')) {
+    throw new Error('7日間・3年間CSVの両方が正しくダウンロードされていません');
+  }
+
+  // 個別消去の検証: 7日間ログのみ消去しても3年間ログは残ること
+  await dualStorage.clear();
+  const after7dClear7d = await dualStorage.getAll();
+  const after7dClear3y = await dualStorage.getAllLongTerm();
+  console.log(`7日間ログ消去後: 7日間ログ = ${after7dClear7d.length}件, 3年間ログ = ${after7dClear3y.length}件`);
+  if (after7dClear7d.length !== 0 || after7dClear3y.length !== 2) {
+    throw new Error('7日間ログ消去時に3年間ログが保持されていません');
+  }
+
+  // 7日間ログを再追加し、今度は3年間ログのみ消去しても7日間ログは残ること
+  await dualStorage.savePacket(p1);
+  await dualStorage.clearLongTerm();
+  const after3yClear7d = await dualStorage.getAll();
+  const after3yClear3y = await dualStorage.getAllLongTerm();
+  console.log(`3年間ログ消去後: 7日間ログ = ${after3yClear7d.length}件, 3年間ログ = ${after3yClear3y.length}件`);
+  if (after3yClear7d.length !== 1 || after3yClear3y.length !== 0) {
+    throw new Error('3年間ログ消去時に7日間ログが保持されていません');
   }
 
   const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(2);

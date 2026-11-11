@@ -4,9 +4,14 @@
  */
 
 import { SerialManager } from './serial/serial-manager.js';
-import { StorageManager } from './storage/db.js';
-import { ChartAggregator, TIME_SCALES } from './data/aggregator.js';
-import { exportToCsv } from './export/csv-exporter.js';
+import {
+  StorageManager,
+  LONG_TERM_INTERVAL_MS,
+  SHORT_TERM_RETENTION_DAYS,
+  LONG_TERM_RETENTION_DAYS
+} from './storage/db.js';
+import { ChartAggregator, TIME_SCALES, calculateAveragePoint } from './data/aggregator.js';
+import { exportToCsv, exportLongTermToCsv } from './export/csv-exporter.js';
 
 import { DigitalClock } from './components/digital-clock.js';
 import { WindDirectionGauge } from './components/wind-direction-gauge.js';
@@ -22,6 +27,10 @@ class App {
     this.aggregator = new ChartAggregator('10m');
     this.recentPackets = [];
 
+    // 3年間ログ（16.8分＝1,008秒間隔集約）用の現在バケット管理
+    this.longTermBucketId = null;
+    this.longTermBucketPackets = [];
+
     // UI コンポーネント参照
     this.clock = null;
     this.dirGauge = null;
@@ -36,11 +45,18 @@ class App {
     this.statusDot = document.getElementById('status-dot');
     this.statusText = document.getElementById('status-text');
     this.btnExportCsv = document.getElementById('btn-export-csv');
+    this.btnExportCsv3y = document.getElementById('btn-export-csv-3y');
     this.btnClearDb = document.getElementById('btn-clear-db');
+
+    // ログ消去ダイアログ要素
+    this.clearLogModal = document.getElementById('clear-log-modal');
+    this.btnClear7d = document.getElementById('btn-clear-7d');
+    this.btnClear3y = document.getElementById('btn-clear-3y');
+    this.btnClearCancel = document.getElementById('btn-clear-cancel');
   }
 
   async init() {
-    console.log('かざみんリアルタイムモニター ver.0.1.10 起動中...');
+    console.log('かざみんリアルタイムモニター ver.0.2.0 起動中...');
 
     // 1. UI コンポーネントの初期化（同期実行で即座に画面構築）
     this.clock = new DigitalClock(document.getElementById('clock-container'));
@@ -88,13 +104,22 @@ class App {
 
     // 4. IndexedDB 初期化・履歴復元・古いデータのパージ
     try {
+      if (navigator.storage && typeof navigator.storage.persist === 'function') {
+        navigator.storage.persist().catch(() => {});
+      }
       await this.storageManager.init();
+      // 現在進行中の16.8分バケットがDBに存在する場合は生パケット群を引き継ぐ
+      await this._restoreCurrentLongTermBucket();
       // 初期スケールの履歴データをIndexedDBから復元して描画
       await this._handleTimeScaleChange(this.chart.timeScale || '10m');
-      // 7日以前の過去データを一括パージ
-      await this.storageManager.purgeOldData(7);
+      // 7日以前の短期データおよび3年以前の長期データを一括パージ
+      await this.storageManager.purgeOldData(SHORT_TERM_RETENTION_DAYS);
+      await this.storageManager.purgeOldLongTermData(LONG_TERM_RETENTION_DAYS);
       // 1時間おきに古いデータをパージ
-      setInterval(() => this.storageManager.purgeOldData(7), 3600 * 1000);
+      setInterval(() => {
+        this.storageManager.purgeOldData(SHORT_TERM_RETENTION_DAYS);
+        this.storageManager.purgeOldLongTermData(LONG_TERM_RETENTION_DAYS);
+      }, 3600 * 1000);
     } catch (e) {
       console.warn('Storage init warning:', e);
     }
@@ -125,30 +150,107 @@ class App {
       }
     });
 
-    // CSVエクスポートボタン
-    this.btnExportCsv.addEventListener('click', async () => {
-      try {
-        const records = await this.storageManager.getAll();
-        if (!records || records.length === 0) {
-          alert('保存されているデータがまだありません。');
-          return;
-        }
-        exportToCsv(records, 'kazamin_log');
-      } catch (err) {
-        alert(`CSV出力エラー: ${err.message}`);
-      }
-    });
-
-    // 履歴クリアボタン
-    if (this.btnClearDb) {
-      this.btnClearDb.addEventListener('click', async () => {
-        if (confirm('IndexedDBに蓄積されたすべての測定ログを消去しますか？')) {
-          this.recentPackets = [];
-          await this.storageManager.clear();
-          alert('ログデータを消去しました。');
+    // CSV(7日間)エクスポートボタン
+    if (this.btnExportCsv) {
+      this.btnExportCsv.addEventListener('click', async () => {
+        try {
+          const records = await this.storageManager.getAll();
+          if (!records || records.length === 0) {
+            alert('保存されているデータがまだありません。');
+            return;
+          }
+          exportToCsv(records, 'kazamin_log_7d');
+        } catch (err) {
+          alert(`CSV出力エラー: ${err.message}`);
         }
       });
     }
+
+    // CSV(3年間)エクスポートボタン
+    if (this.btnExportCsv3y) {
+      this.btnExportCsv3y.addEventListener('click', async () => {
+        try {
+          const records = await this.storageManager.getAllLongTerm();
+          if (!records || records.length === 0) {
+            alert('保存されているデータがまだありません。');
+            return;
+          }
+          exportLongTermToCsv(records, 'kazamin_log_3y');
+        } catch (err) {
+          alert(`CSV出力エラー: ${err.message}`);
+        }
+      });
+    }
+
+    // ログ消去ボタン（選択ダイアログを開く）
+    if (this.btnClearDb) {
+      this.btnClearDb.addEventListener('click', () => {
+        this._openClearLogModal();
+      });
+    }
+
+    // ダイアログ: 7日間ログ消去
+    if (this.btnClear7d) {
+      this.btnClear7d.addEventListener('click', async () => {
+        this._closeClearLogModal();
+        try {
+          this.recentPackets = [];
+          await this.storageManager.clear();
+          await this._handleTimeScaleChange(this.chart.timeScale || '10m');
+          alert('7日間ログを消去しました。');
+        } catch (err) {
+          alert(`ログ消去エラー: ${err.message}`);
+        }
+      });
+    }
+
+    // ダイアログ: 3年間ログ消去
+    if (this.btnClear3y) {
+      this.btnClear3y.addEventListener('click', async () => {
+        this._closeClearLogModal();
+        try {
+          this.longTermBucketId = null;
+          this.longTermBucketPackets = [];
+          await this.storageManager.clearLongTerm();
+          alert('3年間ログを消去しました。');
+        } catch (err) {
+          alert(`ログ消去エラー: ${err.message}`);
+        }
+      });
+    }
+
+    // ダイアログ: キャンセル & オーバーレイ外クリック & Escapeキー
+    if (this.btnClearCancel) {
+      this.btnClearCancel.addEventListener('click', () => {
+        this._closeClearLogModal();
+      });
+    }
+
+    if (this.clearLogModal) {
+      this.clearLogModal.addEventListener('click', (e) => {
+        if (e.target === this.clearLogModal) {
+          this._closeClearLogModal();
+        }
+      });
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.clearLogModal && !this.clearLogModal.hidden) {
+        this._closeClearLogModal();
+      }
+    });
+  }
+
+  _openClearLogModal() {
+    if (!this.clearLogModal) return;
+    this.clearLogModal.hidden = false;
+    this.clearLogModal.setAttribute('aria-hidden', 'false');
+  }
+
+  _closeClearLogModal() {
+    if (!this.clearLogModal) return;
+    this.clearLogModal.hidden = true;
+    this.clearLogModal.setAttribute('aria-hidden', 'true');
   }
 
   _setupSerialCallbacks() {
@@ -186,13 +288,76 @@ class App {
     this.aggregator.addPacket(packet);
     this.chart.updateData(this.aggregator.getPlotData());
 
-    // 4. IndexedDB に永続化 & 直近メモリバッファに保持（上限600件）
+    // 4. IndexedDB に永続化（7日間生データ & 3年間16.8分集約データ） & 直近メモリバッファに保持（上限600件）
     if (packet.isValid) {
       this.recentPackets.push(packet);
       while (this.recentPackets.length > 600) {
         this.recentPackets.shift();
       }
       this.storageManager.savePacket(packet);
+      this._updateLongTermLog(packet);
+    }
+  }
+
+  /**
+   * 3年間ログ（16.8分＝1,008秒間隔集約）の更新と保存
+   * @param {object} packet
+   */
+  _updateLongTermLog(packet) {
+    const pTime = packet.timestamp instanceof Date
+      ? packet.timestamp.getTime()
+      : new Date(packet.timestamp).getTime();
+    const bucketId = Math.floor(pTime / LONG_TERM_INTERVAL_MS);
+
+    if (this.longTermBucketId === null) {
+      this.longTermBucketId = bucketId;
+      this.longTermBucketPackets = [packet];
+    } else if (bucketId === this.longTermBucketId) {
+      this.longTermBucketPackets.push(packet);
+    } else if (bucketId > this.longTermBucketId) {
+      const prevPoint = calculateAveragePoint(this.longTermBucketPackets);
+      if (prevPoint) {
+        this.storageManager.saveLongTermPoint(this.longTermBucketId, prevPoint);
+      }
+      this.longTermBucketId = bucketId;
+      this.longTermBucketPackets = [packet];
+    }
+
+    const currentPoint = calculateAveragePoint(this.longTermBucketPackets);
+    if (currentPoint) {
+      this.storageManager.saveLongTermPoint(this.longTermBucketId, currentPoint);
+    }
+  }
+
+  /**
+   * ページ再読み込み時に現在進行中の16.8分バケットがあれば7日間ログからパケット群を復元
+   */
+  async _restoreCurrentLongTermBucket() {
+    try {
+      const currentBucketId = Math.floor(Date.now() / LONG_TERM_INTERVAL_MS);
+      const existingBucket = await this.storageManager.getLongTermBucket(currentBucketId);
+      if (!existingBucket) return;
+
+      const bucketStartMs = currentBucketId * LONG_TERM_INTERVAL_MS;
+      const history = await this.storageManager.getSince(bucketStartMs);
+      const bucketPackets = history
+        .filter((h) => Math.floor(h.timestamp / LONG_TERM_INTERVAL_MS) === currentBucketId)
+        .map((h) => ({
+          isValid: true,
+          timestamp: new Date(h.timestamp),
+          speed: h.speed,
+          direction: h.direction,
+          temperature: h.temperature,
+          isError: h.isError,
+          raw: h.raw
+        }));
+
+      if (bucketPackets.length > 0 && this.longTermBucketId === null) {
+        this.longTermBucketId = currentBucketId;
+        this.longTermBucketPackets = bucketPackets;
+      }
+    } catch (e) {
+      console.warn('Failed to restore current long-term bucket:', e);
     }
   }
 
