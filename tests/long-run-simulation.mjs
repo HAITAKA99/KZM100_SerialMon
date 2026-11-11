@@ -486,6 +486,15 @@ async function runSimulation() {
   if (downloadedFiles.length !== 2 || !downloadedFiles[0].filename.startsWith('kazamin_log_7d_') || !downloadedFiles[1].filename.startsWith('kazamin_log_3y_')) {
     throw new Error('7日間・3年間CSVの両方が正しくダウンロードされていません');
   }
+  const csv3yLines = downloadedFiles[1].content.replace(/^\uFEFF/, '').split('\r\n');
+  const expected3yHeader = '日時 (Timestamp),風速中央値 (Wind Speed Median [m/s]),風速最小 (Wind Speed Min [m/s]),風速最大 (Wind Speed Max [m/s]),風向 (Wind Direction [deg]),気温 (Temperature [℃]),ステータス (Status)';
+  if (csv3yLines[0] !== expected3yHeader || csv3yLines[0].includes('風速平均')) {
+    throw new Error(`3年間CSVのヘッダー列順が不正です: ${csv3yLines[0]}`);
+  }
+  const rowCols = csv3yLines[1].split(',');
+  if (rowCols[1] !== '5.0' || rowCols[2] !== '4.0' || rowCols[3] !== '6.0' || rowCols.length !== 7) {
+    throw new Error(`3年間CSVのデータ列（中央値・最小・最大）が不正です: ${csv3yLines[1]}`);
+  }
 
   // 個別消去の検証: 7日間ログのみ消去しても3年間ログは残ること
   await dualStorage.clear();

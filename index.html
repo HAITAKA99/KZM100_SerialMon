@@ -2129,10 +2129,9 @@ function exportLongTermToCsv(records, filenamePrefix = 'kazamin_log_3y') {
   const BOM = '\uFEFF';
   const headers = [
     '日時 (Timestamp)',
-    '風速平均 (Wind Speed Avg [m/s])',
+    '風速中央値 (Wind Speed Median [m/s])',
     '風速最小 (Wind Speed Min [m/s])',
     '風速最大 (Wind Speed Max [m/s])',
-    '風速中央値 (Wind Speed Median [m/s])',
     '風向 (Wind Direction [deg])',
     '気温 (Temperature [℃])',
     'ステータス (Status)'
@@ -2142,20 +2141,19 @@ function exportLongTermToCsv(records, filenamePrefix = 'kazamin_log_3y') {
 
   for (const r of records) {
     const timeStr = `"${formatTimestamp(r.timestamp)}"`;
-    const speedAvgStr = r.speed !== null && r.speed !== undefined ? r.speed.toFixed(1) : '';
     const minVal = r.speedMin !== undefined ? r.speedMin : r.speed;
     const maxVal = r.speedMax !== undefined ? r.speedMax : r.speed;
     const medVal = r.speedMedian !== undefined ? r.speedMedian : r.speed;
+    const speedMedStr = medVal !== null && medVal !== undefined ? medVal.toFixed(1) : '';
     const speedMinStr = minVal !== null && minVal !== undefined ? minVal.toFixed(1) : '';
     const speedMaxStr = maxVal !== null && maxVal !== undefined ? maxVal.toFixed(1) : '';
-    const speedMedStr = medVal !== null && medVal !== undefined ? medVal.toFixed(1) : '';
     const dirStr = r.direction !== null && r.direction !== undefined ? r.direction : '';
     const tempStr = r.temperature !== null && r.temperature !== undefined
       ? (r.temperature >= 0 ? `+${r.temperature.toFixed(1)}` : r.temperature.toFixed(1))
       : '';
     const statusStr = r.isError ? '"ERROR (99.9m/s)"' : '"OK"';
 
-    rows.push([timeStr, speedAvgStr, speedMinStr, speedMaxStr, speedMedStr, dirStr, tempStr, statusStr].join(','));
+    rows.push([timeStr, speedMedStr, speedMinStr, speedMaxStr, dirStr, tempStr, statusStr].join(','));
   }
 
   const csvContent = BOM + rows.join('\r\n');
