@@ -3,7 +3,7 @@
  * オフライン動作のためのアセットキャッシュ管理
  */
 
-const CACHE_NAME = 'kazamin-monitor-v1';
+const CACHE_NAME = 'kazamin-monitor-v2';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',

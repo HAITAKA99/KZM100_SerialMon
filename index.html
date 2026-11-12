@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>かざみんリアルタイムモニター ver.0.1.10</title>
+  <title>かざみんリアルタイムモニター ver.0.2.0</title>
   <meta name="description" content="超音波風向風速計 かざみん (KZM100A/KZM100LR) Web Serial API リアルタイム計測モニター">
   <meta name="theme-color" content="#131f3d">
   <!-- PWA Manifest -->
@@ -820,6 +820,7 @@ body {
 .footer-left {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -865,6 +866,55 @@ body {
 
 .btn-csv:hover {
   filter: brightness(1.1);
+}
+
+/* モーダルダイアログ（ログ消去選択） */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(11, 19, 41, 0.78);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.modal-overlay[hidden] {
+  display: none !important;
+}
+
+.modal-dialog {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  max-width: 400px;
+  width: 100%;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.modal-message {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
 }
 
 /* 16:9 大画面およびデスクトップ表示（全画面表示最適化） */
@@ -1030,7 +1080,7 @@ body {
         <svg class="header-logo" width="32" height="32" viewBox="0 0 562 562" aria-label="かざみん"><use href="#kazamin-icon" xlink:href="#kazamin-icon"/></svg>
         <h1 class="header-title">
           かざみんリアルタイムモニター
-          <span class="header-version">ver.0.1.10</span>
+          <span class="header-version">ver.0.2.0</span>
         </h1>
       </div>
 
@@ -1079,14 +1129,20 @@ body {
     <!-- フッター -->
     <footer class="app-footer">
       <div class="footer-left">
-        <button type="button" id="btn-clear-db" class="btn btn-secondary" title="IndexedDBに保存された全計測履歴を消去">
-          初期化
+        <button type="button" id="btn-clear-db" class="btn btn-secondary" title="保存された計測ログを消去">
+          ログ消去
         </button>
-        <button type="button" id="btn-export-csv" class="btn btn-csv">
+        <button type="button" id="btn-export-csv" class="btn btn-csv" title="7日間ログ(1秒間隔)をCSVダウンロード">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
           </svg>
-          CSV(最大7日間)
+          CSV(7日間)
+        </button>
+        <button type="button" id="btn-export-csv-3y" class="btn btn-csv" title="3年間ログ(16.8分間隔)をCSVダウンロード">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+          </svg>
+          CSV(3年間)
         </button>
       </div>
 
@@ -1101,6 +1157,19 @@ body {
         </a>
       </div>
     </footer>
+  </div>
+
+  <!-- ログ消去選択ダイアログ -->
+  <div id="clear-log-modal" class="modal-overlay" hidden aria-hidden="true">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-log-modal-title">
+      <h2 id="clear-log-modal-title" class="modal-title">ログ消去</h2>
+      <p class="modal-message">消去するログデータを選択してください。</p>
+      <div class="modal-actions">
+        <button type="button" id="btn-clear-7d" class="btn btn-danger">7日間ログ消去</button>
+        <button type="button" id="btn-clear-3y" class="btn btn-danger">3年間ログ消去</button>
+        <button type="button" id="btn-clear-cancel" class="btn btn-secondary">キャンセル</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -1624,12 +1693,20 @@ class ChartAggregator {
 // --- Begin src\storage\db.js ---
 /**
  * db.js
- * IndexedDB を利用した測定データのローカル永続化（最大7日間保持 & 自動パージ）
+ * IndexedDB を利用した測定データのローカル永続化
+ * - 7日間ログ (measurements): 1秒間隔の全受信パケットを最大7日間保持 & 自動パージ
+ * - 3年間ログ (long_term_logs): 7日間グラフでプロットされる16.8分(1,008秒)間隔の集約データを最大3年間保持 & 自動パージ
  */
 
 const DB_NAME = 'KazaminMonitorDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'measurements';
+const LONG_TERM_STORE_NAME = 'long_term_logs';
+
+const LONG_TERM_INTERVAL_SEC = 1008; // 16.8分 (1,008秒)
+const LONG_TERM_INTERVAL_MS = LONG_TERM_INTERVAL_SEC * 1000;
+const SHORT_TERM_RETENTION_DAYS = 7;
+const LONG_TERM_RETENTION_DAYS = 365 * 3; // 3年間 (1,095日)
 
 class StorageManager {
   constructor() {
@@ -1673,6 +1750,12 @@ class StorageManager {
             autoIncrement: true
           });
           store.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+        if (!db.objectStoreNames.contains(LONG_TERM_STORE_NAME)) {
+          const longTermStore = db.createObjectStore(LONG_TERM_STORE_NAME, {
+            keyPath: 'bucketId'
+          });
+          longTermStore.createIndex('timestamp', 'timestamp', { unique: false });
         }
       };
 
@@ -1719,7 +1802,7 @@ class StorageManager {
   }
 
   /**
-   * 計測パケットを1件保存
+   * 計測パケットを1件保存（7日間ログ）
    * @param {object} packet - parsePacket の結果
    */
   async savePacket(packet) {
@@ -1746,7 +1829,55 @@ class StorageManager {
   }
 
   /**
-   * 指定した開始時刻以降のデータを取得
+   * 16.8分(1,008秒)間隔の集約プロットデータを保存・更新（3年間ログ）
+   * @param {number} bucketId - Math.floor(timestamp / LONG_TERM_INTERVAL_MS)
+   * @param {object} point - calculateAveragePoint の結果
+   */
+  async saveLongTermPoint(bucketId, point) {
+    if (bucketId === null || bucketId === undefined || !point) return;
+
+    try {
+      const db = await this.init();
+      const tx = db.transaction(LONG_TERM_STORE_NAME, 'readwrite');
+      const store = tx.objectStore(LONG_TERM_STORE_NAME);
+
+      const record = {
+        bucketId,
+        timestamp: point.timestamp instanceof Date ? point.timestamp.getTime() : point.timestamp,
+        speed: point.speed,
+        speedMin: point.speedMin !== undefined ? point.speedMin : point.speed,
+        speedMax: point.speedMax !== undefined ? point.speedMax : point.speed,
+        speedMedian: point.speedMedian !== undefined ? point.speedMedian : point.speed,
+        direction: point.direction,
+        temperature: point.temperature,
+        isError: Boolean(point.isError)
+      };
+
+      store.put(record);
+    } catch (err) {
+      console.warn('Failed to save long-term point to IndexedDB:', err);
+    }
+  }
+
+  /**
+   * 指定したバケットIDの3年間ログレコードを1件取得
+   * @param {number} bucketId
+   * @returns {Promise<object|null>}
+   */
+  async getLongTermBucket(bucketId) {
+    const db = await this.init();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(LONG_TERM_STORE_NAME, 'readonly');
+      const store = tx.objectStore(LONG_TERM_STORE_NAME);
+      const request = store.get(bucketId);
+
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 指定した開始時刻以降の7日間ログデータを取得
    * @param {number|Date} startTime
    * @returns {Promise<Array>}
    */
@@ -1767,7 +1898,7 @@ class StorageManager {
   }
 
   /**
-   * 保存されている全レコードを取得
+   * 保存されている7日間ログの全レコードを取得
    * @returns {Promise<Array>}
    */
   async getAll() {
@@ -1783,13 +1914,29 @@ class StorageManager {
   }
 
   /**
-   * 7日以上前の古いレコードを自動削除（パージ）
+   * 保存されている3年間ログの全レコードを取得
+   * @returns {Promise<Array>}
+   */
+  async getAllLongTerm() {
+    const db = await this.init();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(LONG_TERM_STORE_NAME, 'readonly');
+      const store = tx.objectStore(LONG_TERM_STORE_NAME);
+      const request = store.getAll();
+
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * 7日以上前の古い生データレコードを自動削除（パージ）
    * 1件ずつのカーソル削除では大量データ蓄積時にreadwriteロックが長時間続くため、
    * 削除対象の最大主キー(id)を逆順カーソルで1件特定し、IDBKeyRange.upperBoundで一括範囲削除する
    * @param {number} [retentionDays=7] - 保持日数
    * @returns {Promise<void>}
    */
-  async purgeOldData(retentionDays = 7) {
+  async purgeOldData(retentionDays = SHORT_TERM_RETENTION_DAYS) {
     try {
       const db = await this.init();
       const cutoffTime = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
@@ -1821,7 +1968,43 @@ class StorageManager {
   }
 
   /**
-   * 全データを削除（クリア）
+   * 3年(1,095日)以上前の古い長期集約レコードを自動削除（パージ）
+   * @param {number} [retentionDays=1095] - 保持日数
+   * @returns {Promise<void>}
+   */
+  async purgeOldLongTermData(retentionDays = LONG_TERM_RETENTION_DAYS) {
+    try {
+      const db = await this.init();
+      const cutoffTime = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(LONG_TERM_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(LONG_TERM_STORE_NAME);
+        const index = store.index('timestamp');
+        const range = IDBKeyRange.upperBound(cutoffTime);
+
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error('Long-term purge transaction aborted'));
+
+        const cursorReq = index.openKeyCursor
+          ? index.openKeyCursor(range, 'prev')
+          : index.openCursor(range, 'prev');
+
+        cursorReq.onsuccess = (event) => {
+          const cursor = event.target.result;
+          if (cursor && cursor.primaryKey !== undefined) {
+            store.delete(IDBKeyRange.upperBound(cursor.primaryKey));
+          }
+        };
+      });
+    } catch (err) {
+      console.warn('Failed to purge old long-term data:', err);
+    }
+  }
+
+  /**
+   * 7日間ログ（生データ）をすべて削除（クリア）
    */
   async clear() {
     const db = await this.init();
@@ -1833,17 +2016,31 @@ class StorageManager {
       request.onerror = () => reject(request.error);
     });
   }
+
+  /**
+   * 3年間ログ（16.8分集約データ）をすべて削除（クリア）
+   */
+  async clearLongTerm() {
+    const db = await this.init();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(LONG_TERM_STORE_NAME, 'readwrite');
+      const store = tx.objectStore(LONG_TERM_STORE_NAME);
+      const request = store.clear();
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
 }
 // --- End src\storage\db.js ---
 
 // --- Begin src\export\csv-exporter.js ---
 /**
  * csv-exporter.js
- * 保持データ（最大7日間）をCSV形式でファイルダウンロードするモジュール
+ * 保持データ（7日間ログ / 3年間ログ）をCSV形式でファイルダウンロードするモジュール
  */
 
 /**
- * 日付オブジェクトを YYYY-MM-DD HH:mm:ss 形式にフォーマット
+ * 日付オブジェクトを YYYY/MM/DD HH:mm:ss 形式にフォーマット
  * @param {Date|number} timestamp
  * @returns {string}
  */
@@ -1862,11 +2059,35 @@ function formatTimestamp(timestamp) {
 }
 
 /**
- * データ配列からCSV文字列を生成してブラウザダウンロードを実行する
- * @param {Array<object>} records - 測定レコードの配列
- * @param {string} [filenamePrefix='kazamin_log']
+ * CSV文字列からブラウザダウンロードを実行する共通ヘルパー
+ * @param {string} csvContent - BOM付きCSV文字列
+ * @param {string} filenamePrefix
  */
-function exportToCsv(records, filenamePrefix = 'kazamin_log') {
+function triggerCsvDownload(csvContent, filenamePrefix) {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const fileDate = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const filename = `${filenamePrefix}_${fileDate}.csv`;
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * 7日間ログ（1秒間隔の生データ配列）からCSV文字列を生成してブラウザダウンロードを実行する
+ * @param {Array<object>} records - 測定レコードの配列
+ * @param {string} [filenamePrefix='kazamin_log_7d']
+ */
+function exportToCsv(records, filenamePrefix = 'kazamin_log_7d') {
   if (!records || records.length === 0) {
     alert('出力対象の受信データがありません。');
     return;
@@ -1875,7 +2096,7 @@ function exportToCsv(records, filenamePrefix = 'kazamin_log') {
   // BOM付き UTF-8 でExcelでも文字化けしないようにする
   const BOM = '\uFEFF';
   const headers = ['日時 (Timestamp)', '風速 (Wind Speed [m/s])', '風向 (Wind Direction [deg])', '気温 (Temperature [℃])', 'ステータス (Status)', '生パケット (Raw Data)'];
-  
+
   const rows = [headers.join(',')];
 
   for (const r of records) {
@@ -1890,24 +2111,53 @@ function exportToCsv(records, filenamePrefix = 'kazamin_log') {
   }
 
   const csvContent = BOM + rows.join('\r\n');
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  triggerCsvDownload(csvContent, filenamePrefix);
+}
 
-  // ファイル名生成: kazamin_log_YYYYMMDD_HHMMSS.csv
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  const fileDate = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const filename = `${filenamePrefix}_${fileDate}.csv`;
+/**
+ * 3年間ログ（16.8分間隔の集約プロットデータ配列）からCSV文字列を生成してブラウザダウンロードを実行する
+ * @param {Array<object>} records - 長期集約レコードの配列
+ * @param {string} [filenamePrefix='kazamin_log_3y']
+ */
+function exportLongTermToCsv(records, filenamePrefix = 'kazamin_log_3y') {
+  if (!records || records.length === 0) {
+    alert('出力対象の受信データがありません。');
+    return;
+  }
 
-  // ダウンロードリンク作成
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.setAttribute('href', url);
-  link.setAttribute('download', filename);
-  link.style.display = 'none';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  // BOM付き UTF-8 でExcelでも文字化けしないようにする
+  const BOM = '\uFEFF';
+  const headers = [
+    '日時 (Timestamp)',
+    '風速中央値 (Wind Speed Median [m/s])',
+    '風速最小 (Wind Speed Min [m/s])',
+    '風速最大 (Wind Speed Max [m/s])',
+    '風向 (Wind Direction [deg])',
+    '気温 (Temperature [℃])',
+    'ステータス (Status)'
+  ];
+
+  const rows = [headers.join(',')];
+
+  for (const r of records) {
+    const timeStr = `"${formatTimestamp(r.timestamp)}"`;
+    const minVal = r.speedMin !== undefined ? r.speedMin : r.speed;
+    const maxVal = r.speedMax !== undefined ? r.speedMax : r.speed;
+    const medVal = r.speedMedian !== undefined ? r.speedMedian : r.speed;
+    const speedMedStr = medVal !== null && medVal !== undefined ? medVal.toFixed(1) : '';
+    const speedMinStr = minVal !== null && minVal !== undefined ? minVal.toFixed(1) : '';
+    const speedMaxStr = maxVal !== null && maxVal !== undefined ? maxVal.toFixed(1) : '';
+    const dirStr = r.direction !== null && r.direction !== undefined ? r.direction : '';
+    const tempStr = r.temperature !== null && r.temperature !== undefined
+      ? (r.temperature >= 0 ? `+${r.temperature.toFixed(1)}` : r.temperature.toFixed(1))
+      : '';
+    const statusStr = r.isError ? '"ERROR (99.9m/s)"' : '"OK"';
+
+    rows.push([timeStr, speedMedStr, speedMinStr, speedMaxStr, dirStr, tempStr, statusStr].join(','));
+  }
+
+  const csvContent = BOM + rows.join('\r\n');
+  triggerCsvDownload(csvContent, filenamePrefix);
 }
 // --- End src\export\csv-exporter.js ---
 
@@ -3904,6 +4154,10 @@ class App {
     this.aggregator = new ChartAggregator('10m');
     this.recentPackets = [];
 
+    // 3年間ログ（16.8分＝1,008秒間隔集約）用の現在バケット管理
+    this.longTermBucketId = null;
+    this.longTermBucketPackets = [];
+
     // UI コンポーネント参照
     this.clock = null;
     this.dirGauge = null;
@@ -3918,11 +4172,18 @@ class App {
     this.statusDot = document.getElementById('status-dot');
     this.statusText = document.getElementById('status-text');
     this.btnExportCsv = document.getElementById('btn-export-csv');
+    this.btnExportCsv3y = document.getElementById('btn-export-csv-3y');
     this.btnClearDb = document.getElementById('btn-clear-db');
+
+    // ログ消去ダイアログ要素
+    this.clearLogModal = document.getElementById('clear-log-modal');
+    this.btnClear7d = document.getElementById('btn-clear-7d');
+    this.btnClear3y = document.getElementById('btn-clear-3y');
+    this.btnClearCancel = document.getElementById('btn-clear-cancel');
   }
 
   async init() {
-    console.log('かざみんリアルタイムモニター ver.0.1.10 起動中...');
+    console.log('かざみんリアルタイムモニター ver.0.2.0 起動中...');
 
     // 1. UI コンポーネントの初期化（同期実行で即座に画面構築）
     this.clock = new DigitalClock(document.getElementById('clock-container'));
@@ -3970,13 +4231,22 @@ class App {
 
     // 4. IndexedDB 初期化・履歴復元・古いデータのパージ
     try {
+      if (navigator.storage && typeof navigator.storage.persist === 'function') {
+        navigator.storage.persist().catch(() => {});
+      }
       await this.storageManager.init();
+      // 現在進行中の16.8分バケットがDBに存在する場合は生パケット群を引き継ぐ
+      await this._restoreCurrentLongTermBucket();
       // 初期スケールの履歴データをIndexedDBから復元して描画
       await this._handleTimeScaleChange(this.chart.timeScale || '10m');
-      // 7日以前の過去データを一括パージ
-      await this.storageManager.purgeOldData(7);
+      // 7日以前の短期データおよび3年以前の長期データを一括パージ
+      await this.storageManager.purgeOldData(SHORT_TERM_RETENTION_DAYS);
+      await this.storageManager.purgeOldLongTermData(LONG_TERM_RETENTION_DAYS);
       // 1時間おきに古いデータをパージ
-      setInterval(() => this.storageManager.purgeOldData(7), 3600 * 1000);
+      setInterval(() => {
+        this.storageManager.purgeOldData(SHORT_TERM_RETENTION_DAYS);
+        this.storageManager.purgeOldLongTermData(LONG_TERM_RETENTION_DAYS);
+      }, 3600 * 1000);
     } catch (e) {
       console.warn('Storage init warning:', e);
     }
@@ -4007,30 +4277,107 @@ class App {
       }
     });
 
-    // CSVエクスポートボタン
-    this.btnExportCsv.addEventListener('click', async () => {
-      try {
-        const records = await this.storageManager.getAll();
-        if (!records || records.length === 0) {
-          alert('保存されているデータがまだありません。');
-          return;
-        }
-        exportToCsv(records, 'kazamin_log');
-      } catch (err) {
-        alert(`CSV出力エラー: ${err.message}`);
-      }
-    });
-
-    // 履歴クリアボタン
-    if (this.btnClearDb) {
-      this.btnClearDb.addEventListener('click', async () => {
-        if (confirm('IndexedDBに蓄積されたすべての測定ログを消去しますか？')) {
-          this.recentPackets = [];
-          await this.storageManager.clear();
-          alert('ログデータを消去しました。');
+    // CSV(7日間)エクスポートボタン
+    if (this.btnExportCsv) {
+      this.btnExportCsv.addEventListener('click', async () => {
+        try {
+          const records = await this.storageManager.getAll();
+          if (!records || records.length === 0) {
+            alert('保存されているデータがまだありません。');
+            return;
+          }
+          exportToCsv(records, 'kazamin_log_7d');
+        } catch (err) {
+          alert(`CSV出力エラー: ${err.message}`);
         }
       });
     }
+
+    // CSV(3年間)エクスポートボタン
+    if (this.btnExportCsv3y) {
+      this.btnExportCsv3y.addEventListener('click', async () => {
+        try {
+          const records = await this.storageManager.getAllLongTerm();
+          if (!records || records.length === 0) {
+            alert('保存されているデータがまだありません。');
+            return;
+          }
+          exportLongTermToCsv(records, 'kazamin_log_3y');
+        } catch (err) {
+          alert(`CSV出力エラー: ${err.message}`);
+        }
+      });
+    }
+
+    // ログ消去ボタン（選択ダイアログを開く）
+    if (this.btnClearDb) {
+      this.btnClearDb.addEventListener('click', () => {
+        this._openClearLogModal();
+      });
+    }
+
+    // ダイアログ: 7日間ログ消去
+    if (this.btnClear7d) {
+      this.btnClear7d.addEventListener('click', async () => {
+        this._closeClearLogModal();
+        try {
+          this.recentPackets = [];
+          await this.storageManager.clear();
+          await this._handleTimeScaleChange(this.chart.timeScale || '10m');
+          alert('7日間ログを消去しました。');
+        } catch (err) {
+          alert(`ログ消去エラー: ${err.message}`);
+        }
+      });
+    }
+
+    // ダイアログ: 3年間ログ消去
+    if (this.btnClear3y) {
+      this.btnClear3y.addEventListener('click', async () => {
+        this._closeClearLogModal();
+        try {
+          this.longTermBucketId = null;
+          this.longTermBucketPackets = [];
+          await this.storageManager.clearLongTerm();
+          alert('3年間ログを消去しました。');
+        } catch (err) {
+          alert(`ログ消去エラー: ${err.message}`);
+        }
+      });
+    }
+
+    // ダイアログ: キャンセル & オーバーレイ外クリック & Escapeキー
+    if (this.btnClearCancel) {
+      this.btnClearCancel.addEventListener('click', () => {
+        this._closeClearLogModal();
+      });
+    }
+
+    if (this.clearLogModal) {
+      this.clearLogModal.addEventListener('click', (e) => {
+        if (e.target === this.clearLogModal) {
+          this._closeClearLogModal();
+        }
+      });
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.clearLogModal && !this.clearLogModal.hidden) {
+        this._closeClearLogModal();
+      }
+    });
+  }
+
+  _openClearLogModal() {
+    if (!this.clearLogModal) return;
+    this.clearLogModal.hidden = false;
+    this.clearLogModal.setAttribute('aria-hidden', 'false');
+  }
+
+  _closeClearLogModal() {
+    if (!this.clearLogModal) return;
+    this.clearLogModal.hidden = true;
+    this.clearLogModal.setAttribute('aria-hidden', 'true');
   }
 
   _setupSerialCallbacks() {
@@ -4068,13 +4415,76 @@ class App {
     this.aggregator.addPacket(packet);
     this.chart.updateData(this.aggregator.getPlotData());
 
-    // 4. IndexedDB に永続化 & 直近メモリバッファに保持（上限600件）
+    // 4. IndexedDB に永続化（7日間生データ & 3年間16.8分集約データ） & 直近メモリバッファに保持（上限600件）
     if (packet.isValid) {
       this.recentPackets.push(packet);
       while (this.recentPackets.length > 600) {
         this.recentPackets.shift();
       }
       this.storageManager.savePacket(packet);
+      this._updateLongTermLog(packet);
+    }
+  }
+
+  /**
+   * 3年間ログ（16.8分＝1,008秒間隔集約）の更新と保存
+   * @param {object} packet
+   */
+  _updateLongTermLog(packet) {
+    const pTime = packet.timestamp instanceof Date
+      ? packet.timestamp.getTime()
+      : new Date(packet.timestamp).getTime();
+    const bucketId = Math.floor(pTime / LONG_TERM_INTERVAL_MS);
+
+    if (this.longTermBucketId === null) {
+      this.longTermBucketId = bucketId;
+      this.longTermBucketPackets = [packet];
+    } else if (bucketId === this.longTermBucketId) {
+      this.longTermBucketPackets.push(packet);
+    } else if (bucketId > this.longTermBucketId) {
+      const prevPoint = calculateAveragePoint(this.longTermBucketPackets);
+      if (prevPoint) {
+        this.storageManager.saveLongTermPoint(this.longTermBucketId, prevPoint);
+      }
+      this.longTermBucketId = bucketId;
+      this.longTermBucketPackets = [packet];
+    }
+
+    const currentPoint = calculateAveragePoint(this.longTermBucketPackets);
+    if (currentPoint) {
+      this.storageManager.saveLongTermPoint(this.longTermBucketId, currentPoint);
+    }
+  }
+
+  /**
+   * ページ再読み込み時に現在進行中の16.8分バケットがあれば7日間ログからパケット群を復元
+   */
+  async _restoreCurrentLongTermBucket() {
+    try {
+      const currentBucketId = Math.floor(Date.now() / LONG_TERM_INTERVAL_MS);
+      const existingBucket = await this.storageManager.getLongTermBucket(currentBucketId);
+      if (!existingBucket) return;
+
+      const bucketStartMs = currentBucketId * LONG_TERM_INTERVAL_MS;
+      const history = await this.storageManager.getSince(bucketStartMs);
+      const bucketPackets = history
+        .filter((h) => Math.floor(h.timestamp / LONG_TERM_INTERVAL_MS) === currentBucketId)
+        .map((h) => ({
+          isValid: true,
+          timestamp: new Date(h.timestamp),
+          speed: h.speed,
+          direction: h.direction,
+          temperature: h.temperature,
+          isError: h.isError,
+          raw: h.raw
+        }));
+
+      if (bucketPackets.length > 0 && this.longTermBucketId === null) {
+        this.longTermBucketId = currentBucketId;
+        this.longTermBucketPackets = bucketPackets;
+      }
+    } catch (e) {
+      console.warn('Failed to restore current long-term bucket:', e);
     }
   }
 
